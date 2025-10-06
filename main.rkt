@@ -178,7 +178,29 @@
   (new editor-canvas%
        [parent frm-main]))
 (define text-main
-  (new text%
+  (new (class text%
+         (super-new)
+         (define/override (on-char e)
+           (let ((k (send e get-key-code)))
+             (cond
+               ((send e get-control-down)  ;; check for ctrl
+                (when (char? k)
+                  (cond
+                    ((char=? k #\c) (send text-main copy))
+                    ((char=? k #\x) (send text-main cut))
+                    ((char=? k #\v) (send text-main paste))
+                    ((char=? k #\p) (send text-main move-position 'up))
+                    ((char=? k #\n) (send text-main move-position 'down))
+                    ((char=? k #\a) (send text-main move-position 'home))
+                    ((char=? k #\e) (send text-main move-position 'end))
+                    ((char=? k #\f) (send text-main move-position 'right))
+                    ((char=? k #\b) (send text-main move-position 'left)))))
+               (else
+                (cond
+                  ((equal? k 'up) (send text-main move-position 'up))
+                  ((equal? k 'down) (send text-main move-position 'down))
+                  ((equal? k 'left) (send text-main move-position 'left))
+                  ((equal? k 'right) (send text-main move-position 'right))))))))
        [auto-wrap #t]
        ))
 
@@ -210,10 +232,12 @@
 (set! *current-output-adapter*
       (output-adapter
        (λ (sys-msg)
+         (send text-main set-position (send text-main last-position))
          (send text-main change-style system-msg-style-delta)
          (for ([i (in-list (string-split sys-msg "\n"))])
            (display-log-msg (format "SYS>> ~a\n" i))))
        (λ (normal-msg)
+         (send text-main set-position (send text-main last-position))
          (send text-main change-style normal-msg-style-delta)
          (display-log-msg (format "~a\n" normal-msg)))))
 
@@ -241,6 +265,12 @@
   (send lbl-nick set-label (format "Nickname: ~a" new-nick)))
 
 (define (hist)
+  ((output-adapter-system-msg-func *current-output-adapter*)
+   (format "--------------------------------"))
+  ((output-adapter-system-msg-func *current-output-adapter*)
+   (format "full history of ~a ~a:"
+           (client-session-host *current-session*)
+           (client-session-port *current-session*)))
   (let-values ([(n msg last-msg-id) (session-hist *current-session*)])
     (for ([i (in-list msg)])
       ((output-adapter-normal-msg-func
@@ -275,10 +305,14 @@
           (set! *current-session* (session/start host port adapter))
           (session/reuse *current-session* host port))
       ((output-adapter-system-msg-func *current-output-adapter*)
+       (format "--------------------------------"))
+      ((output-adapter-system-msg-func *current-output-adapter*)
        (format "connected to ~a ~a" host port)))))
 
 (define (last-n-msg cmdbodyraw)
   (let ((l (string->number cmdbodyraw)))
+    ((output-adapter-system-msg-func *current-output-adapter*)
+     (format "--------------------------------"))
     ((output-adapter-system-msg-func *current-output-adapter*)
      (format "(last ~a msg)" l))
     (let-values ([(msgs last-msg-id) (session-last *current-session* l)])
@@ -300,7 +334,8 @@
      "/last [n] - fetch last [n] messages"
      "/connect [host] [port?] - connect to server"
      "/help - show this help message"
-     "/font [font-name] - switch the font")
+     "/font [font-name] - switch the font"
+     "/clear - clear the window")
     "\n")))
 
 (define (change-font cmdbodyraw)
@@ -309,6 +344,10 @@
     (send text-main change-style sd 0 (send text-main get-end-position)))
   ((output-adapter-system-msg-func *current-output-adapter*)
    (format "changed font to ~a" cmdbodyraw)))
+
+(define (clear)
+  (send text-main set-position 0 (send text-main last-position))
+  (send text-main clear))
 
 (define tf-cmd
   (new text-field%
@@ -333,6 +372,7 @@
                                ((string=? cmdhead "connect") (connect cmdbodyraw))
                                ((string=? cmdhead "help") (help))
                                ((string=? cmdhead "font") (change-font cmdbodyraw))
+                               ((string=? cmdhead "clear") (clear))
                                ))))
                      (send tf set-value "")
                      ))]))
